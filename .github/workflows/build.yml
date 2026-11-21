@@ -23,13 +23,30 @@ jobs:
           unzip -q neon-coast.zip -d work
           ls work
 
-      - name: Preparar Godot e Android
+      - name: Preparar templates de exportação
         run: |
-          mkdir -p ~/.local/share/godot/export_templates
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/ || true
+          DEST=~/.local/share/godot/export_templates/4.3.stable
+          mkdir -p "$DEST"
+          APK=$(find / -name android_debug.apk -not -path "/proc/*" -not -path "/github/home/*" 2>/dev/null | head -1)
+          if [ -n "$APK" ]; then
+            echo "Templates encontrados em $(dirname $APK)"
+            cp -r "$(dirname $APK)"/. "$DEST"/
+          else
+            echo "Baixando templates do Godot 4.3..."
+            wget -q https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz -O /tmp/t.zip
+            unzip -q /tmp/t.zip -d /tmp/tpl
+            cp -r /tmp/tpl/templates/. "$DEST"/
+          fi
+          ls -la "$DEST" | head -20
+          test -f "$DEST/android_debug.apk"
+
+      - name: Configurar Android
+        run: |
           keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
           SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/lib/android-sdk}}
           JDK=$(dirname $(dirname $(readlink -f $(which java))))
+          echo "SDK=$SDK JDK=$JDK"
+          ls "$SDK/build-tools" || true
           mkdir -p ~/.config/godot
           for f in editor_settings-4.tres editor_settings-4.3.tres; do
           cat > ~/.config/godot/$f <<EOF
@@ -43,6 +60,7 @@ jobs:
           export/android/debug_keystore_pass = "android"
           EOF
           done
+          sed -i 's|gradle_build/target_sdk=""|gradle_build/target_sdk="33"|; s|gradle_build/min_sdk=""|gradle_build/min_sdk="24"|' work/neon-coast/export_presets.cfg
 
       - name: Importar recursos e exportar APK
         working-directory: work/neon-coast
