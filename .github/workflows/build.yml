@@ -1,0 +1,66 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.3
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Juntar as partes e extrair o projeto
+        run: |
+          apt-get update -qq && apt-get install -y -qq unzip
+          cat neon-coast.zip.part* > neon-coast.zip
+          unzip -q neon-coast.zip -d work
+          ls work
+
+      - name: Preparar Godot e Android
+        run: |
+          mkdir -p ~/.local/share/godot/export_templates
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/ || true
+          keytool -keyalg RSA -genkeypair -alias androiddebugkey -keypass android -keystore ~/debug.keystore -storepass android -dname "CN=Android Debug,O=Android,C=US" -validity 9999 -deststoretype pkcs12
+          SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/lib/android-sdk}}
+          JDK=$(dirname $(dirname $(readlink -f $(which java))))
+          mkdir -p ~/.config/godot
+          for f in editor_settings-4.tres editor_settings-4.3.tres; do
+          cat > ~/.config/godot/$f <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$SDK"
+          export/android/java_sdk_path = "$JDK"
+          export/android/debug_keystore = "$HOME/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+          done
+
+      - name: Importar recursos e exportar APK
+        working-directory: work/neon-coast
+        run: |
+          godot --headless --import || true
+          godot --headless --import || true
+          mkdir -p build
+          godot --headless --export-debug "Android" build/neon-coast.apk
+          ls -la build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neon-coast-apk
+          path: work/neon-coast/build/neon-coast.apk
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          name: Neon Coast APK ${{ github.run_number }}
+          files: work/neon-coast/build/neon-coast.apk
+          
